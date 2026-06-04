@@ -1,6 +1,7 @@
 package softmax.fp
 
 import spinal.core._
+import softmax.util.FltDelay
 
 case class FltAccumConfig(
   C_MULT_USAGE: Int = 1,
@@ -44,62 +45,54 @@ class FltAccum(config: FltAccumConfig) extends Component {
   )
 
   private val logic = new ClockingArea(accumClockDomain) {
-    // DSP48 primitive wrapper instantiation based on SFM_DSP48_VER
-    if (config.SFM_DSP48_VER == "DSP48E1") {
-      val dsp48e1 = new FltDsp48e1Wrapper(FltDsp48e1WrapperConfig(
-        A_WIDTH = 2, B_WIDTH = 16, C_WIDTH = 16,
-        D_WIDTH = 27, P_WIDTH = C_RESULT_WIDTH
-      ))
-      dsp48e1.io.clk := io.clk
-      dsp48e1.io.ce := io.ce
-      dsp48e1.io.A_IN := U(0, 2 bits)
-      dsp48e1.io.B_IN := U(0, 16 bits)
-      dsp48e1.io.C_IN := U(0, 16 bits)
-      dsp48e1.io.D_IN := U(0, 27 bits)
-      dsp48e1.io.CARRY_IN := False
-      dsp48e1.io.OP_MODE := B"000000000"
-      dsp48e1.io.ALU_MODE := B"0000"
-      dsp48e1.io.IN_MODE := B"00000"
-    } else {
-      val dsp48e2 = new FltDsp48e2Wrapper(FltDsp48e2WrapperConfig(
-        A_WIDTH = 2, B_WIDTH = 16, C_WIDTH = 16,
-        D_WIDTH = 27, P_WIDTH = C_RESULT_WIDTH
-      ))
-      dsp48e2.io.clk := io.clk
-      dsp48e2.io.ce := io.ce
-      dsp48e2.io.A_IN := U(0, 2 bits)
-      dsp48e2.io.B_IN := U(0, 16 bits)
-      dsp48e2.io.C_IN := U(0, 16 bits)
-      dsp48e2.io.D_IN := U(0, 27 bits)
-      dsp48e2.io.CARRY_IN := False
-      dsp48e2.io.OP_MODE := B"000000000"
-      dsp48e2.io.ALU_MODE := B"0000"
-      dsp48e2.io.IN_MODE := B"00000"
-    }
+    val fltToFix = new FltAccumFltToFix(FltAccumFltToFixConfig(
+      C_A_WIDTH = C_A_WIDTH,
+      C_A_FRACTION_WIDTH = C_A_FRACTION_WIDTH,
+      C_RESULT_WIDTH = 96,
+      C_RESULT_FRACTION_WIDTH = 46,
+      C_HAS_ROUNDING = 0,
+      REGISTERS = "000_1001"
+    ))
+    fltToFix.io.clk := io.clk
+    fltToFix.io.ce := io.ce
+    fltToFix.io.A := io.a_raw
 
-    val accum = Reg(UInt(C_RESULT_WIDTH bits)) init(0)
-    val resultReg = Reg(UInt(C_RESULT_WIDTH bits)) init(0)
-    val delta = io.a_raw.resize(C_RESULT_WIDTH)
-    val nextAccum = UInt(C_RESULT_WIDTH bits)
+    val validD = RegNextWhen(io.valid, io.ce) init(False)
+    val lastD = RegNextWhen(io.last, io.ce) init(False)
+    val subtractD = RegNextWhen(io.subtract_op(0), io.ce) init(False)
 
-    when(io.subtract_op(0)) {
-      nextAccum := accum - delta
+    val accumFix = Reg(SInt(96 bits)) init(0)
+    val deltaFix = fltToFix.io.RESULT.asSInt
+    val nextAccumFix = SInt(96 bits)
+
+    when(subtractD) {
+      nextAccumFix := accumFix - deltaFix
     } otherwise {
-      nextAccum := accum + delta
+      nextAccumFix := accumFix + deltaFix
     }
 
-    when(io.ce && io.valid) {
-      accum := nextAccum
-      when(io.last) {
-        resultReg := nextAccum
-        accum := 0
+    val fixToFlt = new FltAccumFixToFlt(FltAccumFixToFltConfig(
+      C_A_WIDTH = 96,
+      C_A_FRACTION_WIDTH = 46,
+      C_RESULT_WIDTH = C_RESULT_WIDTH,
+      C_RESULT_FRACTION_WIDTH = C_RESULT_FRACTION_WIDTH,
+      C_FIXED_DATA_UNSIGNED = 0
+    ))
+    fixToFlt.io.clk := io.clk
+    fixToFlt.io.ce := io.ce
+    fixToFlt.io.A := nextAccumFix.asUInt
+
+    when(io.ce && validD) {
+      accumFix := nextAccumFix
+      when(lastD) {
+        accumFix := 0
       }
     }
 
-    io.result := resultReg
-    io.underflow := False
-    io.overflow := False
-    io.invalid_op := False
+    io.result := FltDelay(io.clk, io.ce, fixToFlt.io.RESULT.asBits, C_RESULT_WIDTH, 1).asUInt
+    io.underflow := fltToFix.io.UNDERFLOW
+    io.overflow := fltToFix.io.OVERFLOW
+    io.invalid_op := fltToFix.io.INVALID_OP
     io.input_overflow := False
     io.accum_overflow := False
   }
