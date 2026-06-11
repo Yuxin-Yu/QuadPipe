@@ -1,25 +1,15 @@
-// Copyright (c) 2023-present, Guolin Wang (wangguolin@bit.edu.cn)
-// All rights reserved.
-//
-// This source code is licensed under the MIT license found in the
-// LICENSE file in the root directory of this source tree.
+
+
+
+
+
 
 package softmax.fp
 
 import spinal.core._
 import softmax.util.FltDelay
 
-/**
-  * 浮点对齐模块，用于将较小的尾数对齐到较大的尾数的指数
-  *
-  * @param abFw          小数宽度
-  * @param ipWidth       输入宽度
-  * @param opWidth       输出宽度
-  * @param distWidth     距离宽度
-  * @param zDetWidth     零检测宽度
-  * @param possLastBits  可能的最后位数
-  * @param registers     寄存器配置
-  */
+
 class FltAlignment(
     val abFw: Int = 24,
     val ipWidth: Int = 25,
@@ -47,18 +37,18 @@ class FltAlignment(
     config = ClockDomainConfig(resetKind = BOOT)
   )
 
-  // 阶段定义
+
   val zeroDetStage = 2
   val shiftStage = 2
   val addStage = 2
 
-  // 内部信号定义
+
   val extDataIp = Bits(opWidth bits)
   val distIp = Bits(5 bits)
   val alignedShift = Bits(opWidth bits)
   val shiftDataIp = Bits(opWidth bits)
 
-  // 扩展输入数据
+
   extDataIp := io.dataIp ## B(0, 1 bit)
   shiftDataIp := B(0, opWidth - ipWidth bits) ## io.dataIp
   distIp := io.dist(4 downto 1) ## B(0, 1 bit)
@@ -91,11 +81,11 @@ class FltAlignment(
     }
   }
 
-  // Zero detect uses the padded input, but the shift path itself operates on DATA_IP.
-  // Match original flt_shift_msb_first(LAST_STAGES_TO_OMIT=1): LSB of distance is ignored
+
+
   alignedShift := (shiftDataIp.asUInt >> io.dist(4 downto 1).asUInt).asBits.resized
 
-  // 延迟输出
+
   val delayDataOp = new FltDelay(
     width = opWidth,
     length = 0

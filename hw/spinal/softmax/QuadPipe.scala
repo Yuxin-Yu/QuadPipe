@@ -68,7 +68,7 @@ class QuadPipe(
     val reg_sm_cmd_offset = in Bits(32 bits)
   }
 
-  // Internal signals
+
   val rdata = Bits(axiDataWidth bits)
   val rdataValid = Bool()
   val rdataReady = Bool()
@@ -100,7 +100,7 @@ class QuadPipe(
     val ramRdAddr = UInt(12 bits)
     val axiWrCmdDone = Bool()
 
-  // Instantiate command parser
+
   val cmdParMInst = new CmdParM(axiAddrWidth)
   cmdParMInst.io.clk := io.clk
   cmdParMInst.io.rstn := io.rstn
@@ -122,7 +122,7 @@ class QuadPipe(
   scale := cmdParMInst.io.cmd_scale_o
   offset := cmdParMInst.io.cmd_offset_o
 
-  // Instantiate AXI read master
+
   val axiRdMInst = new AxiRdM(
     axiIdWidth = axiIdWidth,
     axiIdLoadId = axiIdLoadId,
@@ -159,7 +159,7 @@ class QuadPipe(
   axiRdMInst.io.cmd_length := totalLen
   axiRdMInst.io.cmd_valid := cmdValid
 
-  // Instantiate width converter
+
   val widthConvertInst = new WidthConvert
   widthConvertInst.io.clk := io.clk
   widthConvertInst.io.rstn := io.rstn && !axiWrCmdDone
@@ -170,7 +170,7 @@ class QuadPipe(
   rdataValidInt := widthConvertInst.io.data_o_valid
   widthConvertInst.io.data_o_ready := rdataReadyInt
 
-  // Instantiate Softmax calculation core
+
   val softmaxCalcMInst = new SoftmaxCalcM(ramDepth = 1024, sfmDsp48Ver = sfmDsp48Ver)
   softmaxCalcMInst.io.clk := io.clk
   softmaxCalcMInst.io.rstn := io.rstn
@@ -191,7 +191,7 @@ class QuadPipe(
   softmaxCalcMInst.io.ram_rd_data := ramRdData
   ramRdAddr := softmaxCalcMInst.io.ram_rd_addr.resized
 
-  // Instantiate RAM
+
   val ramS2p1cSmInst = new RamS2p1cSm(
     cRamS = 1,
     cRamW = 128,
@@ -207,7 +207,7 @@ class QuadPipe(
   ramS2p1cSmInst.io.enb := True
   ramRdData := ramS2p1cSmInst.io.doutb
 
-  // Instantiate result buffer
+
   val resultBufInst = new ResultBuf(
     bufWidth = 128,
     bufDepth = 32,
@@ -223,7 +223,7 @@ class QuadPipe(
   resultBufInst.io.rd_en := rbufRdEn
   rbufValid := resultBufInst.io.valid
 
-  // Instantiate AXI register slice
+
   val axiRsSmInst = new AxiRsSm(
     cDataWidth = 128,
     cRegConfig = 1
@@ -238,7 +238,7 @@ class QuadPipe(
   axiRsSmInst.io.M_READY := wdataReady
   rbufRdEn := rbufValid && rsReady
 
-  // Instantiate AXI write master
+
   val axiWrMInst = new AxiWrM(
     axiIdWidth = axiIdWidth,
     axiIdSaveId = axiIdSaveId,

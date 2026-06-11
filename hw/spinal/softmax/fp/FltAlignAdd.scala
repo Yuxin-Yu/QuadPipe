@@ -1,24 +1,15 @@
-// Copyright (c) 2023-present, Guolin Wang (wangguolin@bit.edu.cn)
-// All rights reserved.
-//
-// This source code is licensed under the MIT license found in the
-// LICENSE file in the root directory of this source tree.
+
+
+
+
+
 
 package softmax.fp
 
 import spinal.core._
 import softmax.util.FltDelay
 
-/**
-  * 浮点对齐加法模块，用于将较小的尾数对齐并与较大的尾数相加
-  *
-  * @param cMultUsage    乘法使用配置
-  * @param abFw         小数宽度
-  * @param distWidth     距离宽度
-  * @param zDetWidth     零检测宽度
-  * @param speed         速度配置
-  * @param registers     寄存器配置
-  */
+
 class FltAlignAdd(
     val cMultUsage: Int = 0,
     val abFw: Int = 24,
@@ -47,12 +38,12 @@ class FltAlignAdd(
     val zeros          = out Bool()
   }
 
-  // 实现类型定义
+
   val fltPtImpLogic = 0
   val fltPtImpDsp48 = 1
   val fltPtImpPrim = 2
 
-  // 添加子类型和阶段定义
+
   val addsubType = fltPtImpLogic
   val addsubAlignBits = 1
   val addmuxAlignBits = 1

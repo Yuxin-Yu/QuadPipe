@@ -1,11 +1,19 @@
-// SPDX-License-Identifier: MIT
-// DSP48E1 包装模块
-// 对Xilinx DSP48E1原语的包装，用于浮点运算
+
+
+
+
+
+
+
+
+
+
+
+
 
 package softmax.fp
 
 import spinal.core._
-import spinal.lib._
 
 case class FltDsp48e1WrapperConfig(
   A_WIDTH: Int = 2,
@@ -37,20 +45,14 @@ case class FltDsp48e1WrapperConfig(
   MASK_FROM_C: Int = 0,
   USE_SIMD: String = "ONE48"
 ) {
-  // 内部常量定义
   val USE_MULT = if (USE_MULTIPLY == 1) "MULTIPLY" else "NONE"
-  val AMULTSEL = if (USE_DPORT == 1) "AD" else "A"
-  
-  // 延迟配置 - DSP48E1 specific
-  val delay_C_REG = if (C_REG < 1) C_REG else 1
-  val delay_A_REG = if (A_REG < 2) A_REG else 2
-  val delay_B_REG = if (B_REG < 2) B_REG else 2
-  val delay_D_REG = if (D_REG < 1) D_REG else 1
+
+  val D_PORT_WIDTH = 25
 }
 
 class FltDsp48e1Wrapper(config: FltDsp48e1WrapperConfig) extends Component {
   import config._
-  
+
   val io = new Bundle {
     val clk = in Bool()
     val ce = in Bool()
@@ -62,65 +64,58 @@ class FltDsp48e1Wrapper(config: FltDsp48e1WrapperConfig) extends Component {
     val OP_MODE = in Bits(9 bits)
     val ALU_MODE = in Bits(4 bits)
     val IN_MODE = in Bits(5 bits)
-    
+
     val CARRY_OUT = out Bits(4 bits)
     val P_OUT = out UInt(P_WIDTH bits)
   }
-  
-  // DSP48E1 has 25-bit D input (vs 27-bit in DSP48E2)
-  // Match original Verilog: truncate D_WIDTH=27 to 25-bit D port
-  val d_width_actual = if (D_WIDTH > 25) 25 else D_WIDTH
 
-  val a_int = io.A_IN.resize(25).asSInt  // DSP48E1 A port: 25-bit signed
-  val b_int = io.B_IN.resize(18).asSInt  // DSP48E1 B port: 18-bit signed
-  val c_int = io.C_IN.resize(48).asSInt  // DSP48E1 C port: 48-bit signed
-  val d_int = io.D_IN.resize(25).asSInt  // DSP48E1 D port: 25-bit signed
-  val p_out_int = UInt(48 bits)
+  private val cd = ClockDomain(clock = io.clk, config = ClockDomainConfig(resetKind = BOOT))
 
-  // OPMODE adjustment: DSP48E1 uses 7-bit OPMODE (vs 9-bit in DSP48E2)
-  val opmode_e1 = io.OP_MODE(6 downto 0).asUInt
-
-  // DSP control signals matching original Verilog register stage control
-  val cea1 = (if (A_REG >= 1) io.ce else True)  // A input stage 1
-  val cea2 = (if (A_REG >= 2) io.ce else True)  // A input stage 2
-  val ceb1 = (if (B_REG >= 1) io.ce else True)  // B input stage 1
-  val ceb2 = (if (B_REG >= 2) io.ce else True)  // B input stage 2
-  val cec = (if (C_REG >= 1) io.ce else True)
-  val ced = (if (D_REG >= 1) io.ce else True)
-  val cem = (if (M_REG >= 1) io.ce else True)
-  val cep = (if (P_REG >= 1) io.ce else True)
-  val cealumode = io.ce
-  val ceopmode = io.ce
-  val ceinmode = io.ce
-  val cecarryin = io.ce
-  val cead = (if (AD_REG >= 1) io.ce else True)
-  val cectrl = io.ce
-
-  // Match original Verilog: register input signals based on config
-  val carry_in_del = if (P_REG >= 1) RegNext(io.CARRY_IN) else io.CARRY_IN
-  val c_in_del = if (C_REG >= 1) RegNext(io.C_IN) else io.C_IN
-  val a_in_del = if (A_REG >= 1) RegNext(io.A_IN) else io.A_IN
-  val b_in_del = if (B_REG >= 1) RegNext(io.B_IN) else io.B_IN
-  val d_in_del = if (D_REG >= 1) RegNext(io.D_IN.resize(d_width_actual)) else io.D_IN.resize(d_width_actual)
-
-  // Behavioral DSP model matching DSP48E1 semantics
-  val dsp = new Area {
-    val p = Reg(UInt(48 bits)) init(0)
-
-    when(io.ce) {
-      val multTerm = a_int * b_int
-      val addTerm = multTerm + c_int + d_int
-      // Only accumulate when ce is active (simplified behavior model)
-      p := addTerm.asUInt
+  private val logic = new ClockingArea(cd) {
+    def dlyN[T <: Data](init0: T, src: T, n: Int): T = {
+      var cur = src
+      for (_ <- 0 until n) {
+        val r = RegNextWhen(cur, io.ce) init (init0)
+        cur = r
+      }
+      cur
     }
-  }
 
-  // Output assignment
-  io.CARRY_OUT := B"0000"
-  io.P_OUT := dsp.p.resize(P_WIDTH)
+
+    val aReg = dlyN(U(0, A_WIDTH bits), io.A_IN, A_REG)
+    val dReg = dlyN(U(0, D_WIDTH bits), io.D_IN, D_REG)
+    val bReg = dlyN(U(0, B_WIDTH bits), io.B_IN, B_REG)
+    val cReg = dlyN(U(0, C_WIDTH bits), io.C_IN, C_REG)
+
+
+    val dPort: UInt = if (D_WIDTH > D_PORT_WIDTH) dReg(D_PORT_WIDTH - 1 downto 0) else dReg
+
+    def ext(v: UInt, w: Int, signed: Int): SInt =
+      if (signed == 1) v.asSInt.resize(w) else v.resize(w).asSInt
+
+    val aS = ext(aReg, 30, A_SIGNED)
+    val dS = ext(dPort, 25, D_SIGNED)
+    val bS = ext(bReg, 18, B_SIGNED)
+    val cS = ext(cReg, 48, C_SIGNED)
+
+
+    val preadd = (aS + dS)
+    val preaddReg = dlyN(S(0, preadd.getWidth bits), preadd, AD_REG)
+
+
+    val mult = preaddReg * bS
+    val multReg = dlyN(S(0, mult.getWidth bits), mult, M_REG)
+
+
+    val carryDel = dlyN(False, io.CARRY_IN, if (C_REG < 1) C_REG else 1)
+    val sum = (multReg + cS + carryDel.asUInt(1 bits).asSInt.resize(48)).resize(48)
+    val pReg = dlyN(S(0, 48 bits), sum.resize(48), P_REG)
+
+    io.P_OUT := pReg.asUInt(P_WIDTH - 1 downto 0)
+    io.CARRY_OUT := B"0000"
+  }
 }
 
-// 伴生对象，用于简化实例化
 object FltDsp48e1Wrapper {
   def apply(
     clk: Bool,

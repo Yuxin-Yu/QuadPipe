@@ -1,21 +1,38 @@
-// SPDX-License-Identifier: MIT
-// 指数计算的特殊情况处理模块
+
+
+
+
+
+
+
+
+
+
+
 
 package softmax.fp
 
 import spinal.core._
-import softmax.util.FltDelay
+import softmax.util.{FltDelay, FltSpecialDetect}
 
 case class FltExpSpecialcaseConfig(
+  C_A_WIDTH: Int = 32,
+  C_A_FRACTION_WIDTH: Int = 24,
+  C_WE: Int = 8,
   C_WF: Int = 23,
+  C_G: Int = 3,
+
   C_RESULT_WIDTH: Int = 32
 ) {
-  val EW = C_RESULT_WIDTH - C_WF
-  val IEEE_BIAS = (1 << (EW - 1)) - 1
-  val C_WE = 8
-  val C_G = 3
+  val EXPONENT_WIDTH = C_A_WIDTH - C_A_FRACTION_WIDTH
+  val IEEE_BIAS = (1 << (C_A_WIDTH - C_A_FRACTION_WIDTH - 1)) - 1
   val RANGE_OVERFLOW_VALUE = C_WE - 2 + IEEE_BIAS
   val RANGE_UNDERFLOW_VALUE = IEEE_BIAS - C_WF - C_G
+
+  val FLT_STATE_NORMAL = 0
+  val FLT_STATE_NAN = 1
+  val FLT_STATE_ZERO = 2
+  val FLT_STATE_INF = 3
 }
 
 class FltExpSpecialcase(config: FltExpSpecialcaseConfig) extends Component {
@@ -24,51 +41,64 @@ class FltExpSpecialcase(config: FltExpSpecialcaseConfig) extends Component {
   val io = new Bundle {
     val clk = in Bool()
     val ce = in Bool()
-    val A = in UInt(C_RESULT_WIDTH bits)
+    val x = in UInt(C_A_WIDTH bits)
 
-    val is_nan = out Bool()
-    val is_inf = out Bool()
-    val is_zero = out Bool()
-    val sign = out Bool()
-    val overflow = out Bool()
-    val underflow = out Bool()
+    val special_case = out Bits(2 bits)
+    val input_is_overflow = out Bool()
+    val input_is_underflow = out Bool()
+    val input_sign = out Bool()
   }
 
-  val expWidth = C_RESULT_WIDTH - C_WF
-  val expBits = io.A(C_RESULT_WIDTH - 2 downto C_WF - 1)
-  val mantBits = io.A(C_WF - 2 downto 0)
+  private val cd = ClockDomain(clock = io.clk, config = ClockDomainConfig(resetKind = BOOT))
 
-  val isZeroNow = expBits === 0
-  val isInfNow = (expBits === U((1 << expWidth) - 1, expWidth bits)) && !mantBits.orR
-  val isNanNow = (expBits === U((1 << expWidth) - 1, expWidth bits)) && mantBits.orR
-  val overflowNow = expBits > U(RANGE_OVERFLOW_VALUE, expWidth bits)
-  val underflowNow = expBits < U(RANGE_UNDERFLOW_VALUE, expWidth bits)
-  val signNow = io.A(C_RESULT_WIDTH - 1)
+  private val logic = new ClockingArea(cd) {
+    val input_sign_i = io.x(C_A_WIDTH - 1)
 
-  // Match original Verilog flt_exp_specialcase pipeline depth:
-  // - flt_special_detect has OP_DELAY=1 (1 cycle)
-  // - flag_async register adds 1 cycle
-  // So special_case outputs have ~2 cycles total
-  // overflow/underflow/sign similar short pipelining
-  io.is_zero := FltDelay(io.clk, io.ce, isZeroNow.asBits, 1, 2).asBool
-  io.is_inf := FltDelay(io.clk, io.ce, isInfNow.asBits, 1, 2).asBool
-  io.is_nan := FltDelay(io.clk, io.ce, isNanNow.asBits, 1, 2).asBool
-  io.overflow := FltDelay(io.clk, io.ce, overflowNow.asBits, 1, 2).asBool
-  io.underflow := FltDelay(io.clk, io.ce, underflowNow.asBits, 1, 2).asBool
-  io.sign := FltDelay(io.clk, io.ce, signNow.asBits, 1, 2).asBool
+
+    val det = new FltSpecialDetect(aW = C_A_WIDTH, aFw = C_A_FRACTION_WIDTH, opDelay = 1)
+    det.io.clk := io.clk
+    det.io.ce := io.ce
+    det.io.A := io.x.asBits
+    val mant_all_zero = det.io.MANT_ALL_ZERO
+    val exp_all_one = det.io.EXP_ALL_ONE
+    val exp_all_zero = det.io.EXP_ALL_ZERO
+
+
+    val expField = io.x(C_A_WIDTH - 2 downto C_A_FRACTION_WIDTH - 1)
+
+    val input_is_overflow_i = RegNext(expField > U(RANGE_OVERFLOW_VALUE, EXPONENT_WIDTH bits)) init(False)
+    val input_is_underflow_i = RegNext(expField < U(RANGE_UNDERFLOW_VALUE, EXPONENT_WIDTH bits)) init(False)
+
+    val flag_async = Reg(Bits(2 bits)) init(0)
+    when(exp_all_zero) {
+      flag_async := B(FLT_STATE_ZERO, 2 bits)
+    } elsewhen (exp_all_one && mant_all_zero) {
+      flag_async := B(FLT_STATE_INF, 2 bits)
+    } elsewhen (exp_all_one && !mant_all_zero) {
+      flag_async := B(FLT_STATE_NAN, 2 bits)
+    } otherwise {
+      flag_async := B(FLT_STATE_NORMAL, 2 bits)
+    }
+
+
+    io.input_is_overflow := FltDelay(io.clk, io.ce, input_is_overflow_i.asBits, 1, 12)(0)
+    io.input_is_underflow := FltDelay(io.clk, io.ce, input_is_underflow_i.asBits, 1, 12)(0)
+    io.special_case := FltDelay(io.clk, io.ce, flag_async, 2, 11)
+    io.input_sign := FltDelay(io.clk, io.ce, input_sign_i.asBits, 1, 13)(0)
+  }
 }
 
 object FltExpSpecialcase {
   def apply(
     clk: Bool,
     ce: Bool,
-    A: UInt,
+    x: UInt,
     config: FltExpSpecialcaseConfig
-  ): (Bool, Bool, Bool, Bool, Bool, Bool) = {
+  ): (Bits, Bool, Bool, Bool) = {
     val module = new FltExpSpecialcase(config)
     module.io.clk := clk
     module.io.ce := ce
-    module.io.A := A
-    (module.io.is_nan, module.io.is_inf, module.io.is_zero, module.io.sign, module.io.overflow, module.io.underflow)
+    module.io.x := x
+    (module.io.special_case, module.io.input_is_overflow, module.io.input_is_underflow, module.io.input_sign)
   }
 }

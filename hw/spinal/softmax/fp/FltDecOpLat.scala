@@ -1,27 +1,15 @@
-// Copyright (c) 2023-present, Guolin Wang (wangguolin@bit.edu.cn)
-// All rights reserved.
-//
-// This source code is licensed under the MIT license found in the
-// LICENSE file in the root directory of this source tree.
+
+
+
+
+
 
 package softmax.fp
 
 import spinal.core._
 import softmax.util.FltDelay
 
-/**
-  * 浮点解码操作延迟模块，用于处理浮点运算的解码操作和结果生成
-  *
-  * @param rW               结果宽度
-  * @param rFw              结果小数宽度
-  * @param registered       是否注册输出
-  * @param speed            速度配置
-  * @param reducedRange     减少范围
-  * @param expAdder         指数加法器配置
-  * @param updateFlagsLate  延迟更新标志
-  * @param noSr             无移位寄存器
-  * @param hasDivideByZero  是否有除零检测
-  */
+
 class FltDecOpLat(
     val rW: Int = 32,
     val rFw: Int = 24,
@@ -58,10 +46,10 @@ class FltDecOpLat(
   )
 
   private val logic = new ClockingArea(opClockDomain) {
-    // 计算局部参数
+
     val rEw = rW - rFw
 
-    // 定义常量
+
     val fltFlowOver         = 0
     val fltFlowUnder        = 1
     val fltFlowAlmostOver   = 2
@@ -82,7 +70,7 @@ class FltDecOpLat(
     val fltDecOpStateExpLsbOne     = 12
     val fltDecOpStateExpLsbZero    = 13
 
-    // 内部信号定义
+
     val expPreOp = Bits(rEw bits)
     val expOp = Reg(Bits(rEw bits)) init(0)
     val mantOp = Reg(Bits(rFw - 1 bits)) init(0)
@@ -91,10 +79,10 @@ class FltDecOpLat(
     val overflowQ = Reg(Bool()) init(False)
     val invalidOpQ = Reg(Bool()) init(False)
 
-    // 赋值
+
     expPreOp := io.exp
 
-    // 处理除零延迟
+
     val delayDivideByZero = new FltDelay(
       width = 1,
       length = registered
@@ -104,7 +92,7 @@ class FltDecOpLat(
     delayDivideByZero.io.D := io.divideByZeroIn.asBits
     io.divideByZero := delayDivideByZero.io.Q.asBool
 
-    // 更新标志
+
     when(io.ce) {
       invalidOpQ := io.invalidOpIn
       overflowQ := (io.flow(fltFlowAlmostOver) && io.expInc) || io.flow(fltFlowOver)
@@ -115,7 +103,7 @@ class FltDecOpLat(
     io.overflow := overflowQ
     io.invalidOp := invalidOpQ
 
-    // 更新符号
+
     when(io.ce) {
       when(io.decOpState(fltDecOpStateSignZero)) {
         signOp := False
@@ -126,7 +114,7 @@ class FltDecOpLat(
       }
     }
 
-    // 更新指数高位
+
     when(io.ce) {
       when(io.decOpState(fltDecOpStateExpZero)) {
         expOp(rEw - 1 downto 1) := B(0, rEw - 1 bits)
@@ -137,7 +125,7 @@ class FltDecOpLat(
       }
     }
 
-    // 更新指数低位
+
     when(io.ce) {
       when(io.decOpState(fltDecOpStateExpLsbZero)) {
         expOp(0) := False
@@ -148,7 +136,7 @@ class FltDecOpLat(
       }
     }
 
-    // 更新尾数高位
+
     when(io.ce) {
       when(io.decOpState(fltDecOpStateMantMsbZero)) {
         mantOp(rFw - 2) := False
@@ -159,7 +147,7 @@ class FltDecOpLat(
       }
     }
 
-    // 更新尾数低位
+
     when(io.ce) {
       when(io.decOpState(fltDecOpStateMantLsbsZero)) {
         mantOp(rFw - 3 downto 0) := B(0, rFw - 2 bits)
@@ -170,7 +158,7 @@ class FltDecOpLat(
       }
     }
 
-    // 组合结果输出
+
     io.result := signOp ## expOp ## mantOp
   }
 }

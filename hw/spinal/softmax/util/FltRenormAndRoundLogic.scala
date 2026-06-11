@@ -1,9 +1,33 @@
-// SPDX-License-Identifier: MIT
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 package softmax.util
 
 import spinal.core._
-import spinal.lib._
 
 case class FltRenormAndRoundLogicConfig(
   FW: Int = 24,
@@ -18,7 +42,14 @@ case class FltRenormAndRoundLogicConfig(
   EXP_ADDER: Int = 0,
   EXP_INC: Int = 0,
   SPEED: Int = 2
-)
+) {
+  val FLT_PT_IMP_LOGIC = 0
+  val RR_IMP_TYPE = CONFIG_IMP_TYPE
+
+  val LOCAL_REG = if (RR_IMP_TYPE == FLT_PT_IMP_LOGIC) 0x08 else 0x04
+  val RND1_WIDTH = FW >> 1
+  val RND2_WIDTH = FW - RND1_WIDTH
+}
 
 class FltRenormAndRoundLogic(config: FltRenormAndRoundLogicConfig) extends Component {
   import config._
@@ -44,46 +75,90 @@ class FltRenormAndRoundLogic(config: FltRenormAndRoundLogicConfig) extends Compo
     val EXP_INC_OUT = out Bool()
   }
 
-  // One-bit normalize and round-to-nearest-even compatible approximation.
-  val mantPre = UInt((FW + 1) bits)
-  when(io.NORMALIZE) {
-    mantPre := io.MANT_IN(FW + 1 downto 1)
-  } otherwise {
-    mantPre := io.MANT_IN(FW downto 0)
-  }
+  private val cd = ClockDomain(clock = io.clk, config = ClockDomainConfig(resetKind = BOOT))
 
-  val roundSticky = io.MANT_IN(0) || io.EXTRA_LSB || io.EXTRA_LSBS.orR || !io.ZERO_LSBS
-  val mantRounded = (mantPre + roundSticky.asUInt.resize(FW + 1)).resized
-  val mantCarry = mantRounded(FW)
+  private val logic = new ClockingArea(cd) {
+    import softmax.util.{FltDelay => D}
+    def dly(d: Bits, w: Int, len: Int): Bits = D(io.clk, io.ce, d, w, len)
 
-  val mantOutComb = UInt(FW - 1 bits)
-  when(mantCarry) {
-    mantOutComb := mantRounded(FW downto 2)
-  } otherwise {
-    mantOutComb := mantRounded(FW - 1 downto 1)
-  }
 
-  val expComb = (io.EXP_IN + io.EXP_OFF + io.EXP_INC_IN.asUInt.resize(EW) + mantCarry.asUInt.resize(EW)).resized
+    val fixed_point_bit = dly(io.FIXED_POINT.asBits, 1, 0)(0)
+    val mant_rnd1 = dly(io.MANT_IN(RND1_WIDTH + 1 downto 0).asBits, RND1_WIDTH + 2, 0).asUInt
+    val mant_rnd2 = dly(io.MANT_IN(FW downto FW - RND2_WIDTH - 1).asBits, RND2_WIDTH + 2, HAS_ADD).asUInt
+    val full_mant_rnd1 = dly(io.MANT_IN(FW + 1 downto 1).asBits, FW + 1, 0).asUInt
+    val mant_lsbs_bit = dly(io.MANT_IN(2 downto 0).asBits, 3, 0)
+    val zero_lsbs_bit = dly(io.ZERO_LSBS.asBits, 1, 0)(0)
+    val extra_lsb_bit = dly(io.EXTRA_LSB.asBits, 1, 0)(0)
+    val extra_lsb_rnd1 = dly(io.EXTRA_LSB.asBits, 1, 0)(0)
+    val extra_lsbs_bit = dly(io.EXTRA_LSBS, 2, 0)
+    val normalize_ext_bit = io.NORMALIZE2 ## io.NORMALIZE
+    val normalize_bit = dly(normalize_ext_bit, 2, 0)
+    val exp_inc_sl = if (EXP_INC == 1) io.EXP_INC_IN else False
+    val exp_inc_rnd2 = dly(exp_inc_sl.asBits, 1, HAS_ADD)(0)
+    val exp_inc_rnd1 = dly(exp_inc_sl.asBits, 1, 0)(0)
+    val exp_op = dly(io.EXP_IN.asBits, EW, 1 - HAS_ADD).asUInt
+    val exp_off_op = dly(io.EXP_OFF.asBits, EW, 1 - HAS_ADD).asUInt
+    val fix_mant_sign_bit = dly(io.FIX_MANT_SIGN.asBits, 1, 0)(0)
+    val sign_bit = dly(io.SIGN.asBits, 1, 0)(0)
 
-  private val rrClockDomain = ClockDomain(
-    clock = io.clk,
-    config = ClockDomainConfig(resetKind = BOOT)
-  )
 
-  private val logic = new ClockingArea(rrClockDomain) {
-    val mantOutReg = Reg(UInt((FW - 1) bits)) init (0)
-    val expOutReg = Reg(UInt(EW bits)) init (0)
-    val expIncOutReg = Reg(Bool()) init (False)
 
-    when(io.ce) {
-      mantOutReg := mantOutComb
-      expOutReg := expComb
-      expIncOutReg := mantCarry
+    val rb_norm0 = normalize_bit(0)
+    val rb_truncate = False
+    val rb_non_zero_trunc = mant_lsbs_bit(0) || mant_lsbs_bit(1) || !zero_lsbs_bit || extra_lsb_bit
+    val rb_fix_neg_trunc = False
+    val rb_zero_bit = rb_norm0 ?
+      (zero_lsbs_bit && !extra_lsb_bit && !extra_lsbs_bit(0) && !extra_lsbs_bit(1)) |
+      (zero_lsbs_bit && !extra_lsb_bit && !extra_lsbs_bit(0) && !extra_lsbs_bit(1) && !mant_lsbs_bit(0))
+    val rb_lsb = rb_norm0 ? mant_lsbs_bit(1) | mant_lsbs_bit(2)
+    val rb_round = rb_norm0 ? (!rb_truncate && mant_lsbs_bit(0)) | (!rb_truncate && mant_lsbs_bit(1))
+    val rb_round_bit = (rb_round && !rb_zero_bit) || (rb_round && rb_zero_bit && rb_lsb)
+    val rb_b_ip = U(4, 3 bits)
+    val rb_a_ip = (!rb_round_bit ## rb_fix_neg_trunc ## rb_non_zero_trunc).asUInt
+    val rb_a_b_sum = ((rb_b_ip ^ rb_a_ip) +^ rb_b_ip + 1)
+    val round_rnd1 = rb_a_b_sum(3)
+
+
+    val normalize_rnd1 = dly(normalize_bit, 2, 0)
+
+
+    val mant_shifted_rnd1 = normalize_rnd1(0) ?
+      mant_rnd1(RND1_WIDTH downto 1) | mant_rnd1(RND1_WIDTH + 1 downto 2)
+    val mant_round_op_rnd1 = (mant_shifted_rnd1 +^ round_rnd1.asUInt)
+    val mant_round_op_lo = dly(mant_round_op_rnd1(RND1_WIDTH - 1 downto 0).asBits, RND1_WIDTH, 1).asUInt
+    val carry_rnd2 = dly(mant_round_op_rnd1(RND1_WIDTH).asBits, 1, HAS_ADD)(0)
+
+    val sh0_mant_rnd2 = (exp_inc_rnd2 ## mant_rnd2(RND2_WIDTH + 1 downto 3)).asUInt
+    val sh1_mant_rnd2 = (exp_inc_rnd2 ## mant_rnd2(RND2_WIDTH downto 2)).asUInt
+    val normalize_rnd2 = dly(normalize_rnd1, 2, HAS_ADD)
+    val mant_shifted_rnd2 = normalize_rnd2(0) ? sh1_mant_rnd2 | sh0_mant_rnd2
+    val b_rnd2 = (U(1, 1 bits) ## U(0, RND2_WIDTH - 1 bits)).asUInt
+    val mant_round_op_rnd2 = (b_rnd2 +^ mant_shifted_rnd2 + carry_rnd2.asUInt)
+    val mant_round_op_hi = dly(mant_round_op_rnd2(RND2_WIDTH - 1 downto 0).asBits, RND2_WIDTH, 1 - HAS_ADD).asUInt
+    val carry_op = dly(mant_round_op_rnd2(RND2_WIDTH).asBits, 1, 1 - HAS_ADD)(0)
+
+
+    val mant_round_op = (mant_round_op_hi ## mant_round_op_lo).asUInt
+    val EXP_INC_OUT_LOGIC = !mant_round_op(FW - 1)
+    val MANT_OUT_LOGIC = mant_round_op(FW - 2 downto 0)
+
+
+    val ext_mant_rnd1 = (exp_inc_rnd1 ## full_mant_rnd1(FW downto 0)).asUInt
+    val dsp_c = ext_mant_rnd1
+    val dsp_b = (U(0, 16 bits) ## round_rnd1 ## U(0, 1 bits)).asUInt.resize(FW + 2)
+    val dsp_p = Reg(UInt(FW + 2 bits)) init(0)
+    when(normalize_rnd1(0)) {
+      dsp_p := (dsp_b + dsp_c + dsp_c).resized
+    } otherwise {
+      dsp_p := (dsp_b + dsp_c).resized
     }
+    val EXP_INC_OUT_DSP = dsp_p(FW + 1)
+    val MANT_OUT_DSP = dsp_p(FW - 1 downto 1)
 
-    io.MANT_OUT := mantOutReg
-    io.EXP_OUT := expOutReg
-    io.EXP_INC_OUT := expIncOutReg
+
+    io.MANT_OUT := (if (RR_IMP_TYPE == 1) MANT_OUT_DSP else MANT_OUT_LOGIC)
+    io.EXP_INC_OUT := (if (RR_IMP_TYPE == 1) EXP_INC_OUT_DSP else EXP_INC_OUT_LOGIC)
+    io.EXP_OUT := (exp_op + exp_off_op + carry_op.asUInt).resized
   }
 }
 

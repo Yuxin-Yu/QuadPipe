@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: MIT
-// 浮点除法尾数加减模块
-// 实现浮点除法过程中的尾数加减操作
+
+
+
 
 package softmax.fp
 
@@ -14,14 +14,14 @@ case class FltDivMantAddSubConfig(
 
 class FltDivMantAddSub(config: FltDivMantAddSubConfig) extends Component {
   import config._
-  
+
   val io = new Bundle {
     val clk = in Bool()
     val ce = in Bool()
     val A = in UInt(W bits)
     val B = in UInt(W bits)
     val SUB = in Bool()
-    
+
     val Q_delay = out UInt(W bits)
     val Q = out UInt(W bits)
   }
@@ -40,7 +40,7 @@ class FltDivMantAddSub(config: FltDivMantAddSubConfig) extends Component {
   }
 }
 
-// 伴生对象，用于简化实例化
+
 object FltDivMantAddSub {
   def apply(
     clk: Bool,

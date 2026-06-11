@@ -1,11 +1,50 @@
-// SPDX-License-Identifier: MIT
-// 指数计算的系数计算模块
-// 使用查找表来获取预计算的系数值
+
+
+
+
+
+
+
+
+
 
 package softmax.fp
 
 import spinal.core._
-import spinal.lib._
+
+object FltExpCcmTables {
+
+  val recipLn2_0: IndexedSeq[Long] = IndexedSeq(
+    0x04, 0x05, 0x07, 0x08, 0x0a, 0x0b, 0x0d, 0x0e,
+    0x10, 0x11, 0x12, 0x14, 0x15, 0x17, 0x18, 0x1a,
+    0x1b, 0x1d, 0x1e, 0x1f, 0x21, 0x22, 0x24, 0x25,
+    0x27, 0x28, 0x2a, 0x2b, 0x2c, 0x2e, 0x2f, 0x31
+  ).map(_.toLong)
+
+
+  val recipLn2_1: IndexedSeq[Long] = IndexedSeq(
+    0x000, 0x02e, 0x05c, 0x08b, 0x0b9, 0x0e7, 0x115, 0x143,
+    0x171, 0x1a0, 0x1ce, 0x1fc, 0x22a, 0x258, 0x286, 0x2b5,
+    0x2e3, 0x311, 0x33f, 0x36d, 0x39b, 0x3ca, 0x3f8, 0x426,
+    0x454, 0x482, 0x4b0, 0x4df, 0x50d, 0x53b, 0x569, 0x597
+  ).map(_.toLong)
+
+
+  val ln2_0: IndexedSeq[Long] = IndexedSeq(
+    0x00000002L, 0x0b172182L, 0x162e4301L, 0x21456480L,
+    0x2c5c8600L, 0x3773a780L, 0x428ac8ffL, 0x4da1ea7eL,
+    0x58b90bfeL, 0x63d02d7eL, 0x6ee74efdL, 0x79fe707cL,
+    0x851591fcL, 0x902cb37cL, 0x9b43d4fbL, 0xa65af67aL
+  )
+
+
+  val ln2_1: IndexedSeq[Long] = IndexedSeq(
+    0x000000000L, 0x0b17217f8L, 0x162e42ff0L, 0x2145647e8L,
+    0x2c5c85fe0L, 0x3773a77d8L, 0x428ac8fd0L, 0x4da1ea7c8L,
+    0x58b90bfc0L, 0x63d02d7b8L, 0x6ee74efb0L, 0x79fe707a8L,
+    0x851591fa0L, 0x902cb3798L, 0x9b43d4f90L, 0xa65af6788L
+  )
+}
 
 case class FltExpCcmConfig(
   C_WF: Int = 23,
@@ -13,60 +52,27 @@ case class FltExpCcmConfig(
   C_RESULT_WIDTH: Int = 8,
   C_TABLE_USAGE: Int = 0
 ) {
-  // 计算函数
-  def fltPtExpGetCcmOriginalDataWidth(tableUsage: Int): Int = {
-    if (tableUsage == 0) {
-      11
-    } else {
-      36
-    }
-  }
-  
-  def fltPtExpGetCcmAddressWidth(tableUsage: Int): Int = {
-    if (tableUsage == 0) {
-      5
-    } else {
-      4
-    }
-  }
-  
-  def fltPtExpGetCcmCompressedDataWidth(tableUsage: Int, tableValue: Int): Int = {
-    (tableUsage, tableValue) match {
-      case (0, 0) => 6
-      case (0, 1) => 11
-      case (1, 0) => 32
-      case (1, 1) => 36
-      case _ => 0
-    }
-  }
-  
-  // 内部常量定义
-  val NUM_TABLES = 2
-  val FULL_TABLE_WIDTH = fltPtExpGetCcmOriginalDataWidth(C_TABLE_USAGE)
-  val ADDSUB_MAX_DELAY = 2
-  val MAX_ADDR_WIDTH = 5
-  val MAX_ROM_DEPTH = 1 << MAX_ADDR_WIDTH
-  val ADDR_WIDTH = fltPtExpGetCcmAddressWidth(C_TABLE_USAGE)
-  val ROM_DEPTH = 1 << ADDR_WIDTH
-  val TABLE_WIDTH_0 = fltPtExpGetCcmCompressedDataWidth(C_TABLE_USAGE, 0)
-  val TABLE_WIDTH_1 = fltPtExpGetCcmCompressedDataWidth(C_TABLE_USAGE, 1)
-  val C_HAS_2s_COMP_OP = if (C_TABLE_USAGE == 0) false else true
-  val C_NEGATE_OP = if (C_TABLE_USAGE == 0) false else true
-  
-  // 查找表数据（简化实现，实际需要完整的表格数据）
-  val tableData = Array(
-    // 表格0的数据（C_TABLE_USAGE=0）
-    Array(0x20, 0x24, 0x2c, 0x30, 0x38, 0x3c, 0x44, 0x48, 0x50, 0x54, 0x58, 0x60, 0x64, 0x6c, 0x70, 0x78,
-          0x7c, 0x84, 0x88, 0x8c, 0x94, 0x98, 0xa0, 0xa8, 0xac, 0xb4, 0xb8, 0xc0, 0xc4, 0xcc, 0xd0, 0xd8),
-    // 表格1的数据（C_TABLE_USAGE=0）
-    Array(0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-          0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0)
-  )
+  require(C_TABLE_USAGE == 0 || C_TABLE_USAGE == 1, s"unsupported C_TABLE_USAGE=$C_TABLE_USAGE")
+
+  val FULL_TABLE_WIDTH = if (C_TABLE_USAGE == 0) 11 else 36
+  val ADDR_WIDTH       = if (C_TABLE_USAGE == 0) 5 else 4
+  val TABLE_WIDTH_0    = if (C_TABLE_USAGE == 0) 6 else 32
+  val TABLE_WIDTH_1    = if (C_TABLE_USAGE == 0) 11 else 36
+  val HAS_2S_COMP_OP   = C_TABLE_USAGE != 0
+  val NEGATE_OP        = C_TABLE_USAGE != 0
+
+  require(C_X_WIDTH >= 2 * ADDR_WIDTH,
+    s"C_X_WIDTH=$C_X_WIDTH must be >= 2*ADDR_WIDTH=${2 * ADDR_WIDTH} for usage $C_TABLE_USAGE")
+  require(C_RESULT_WIDTH <= FULL_TABLE_WIDTH,
+    s"C_RESULT_WIDTH=$C_RESULT_WIDTH exceeds FULL_TABLE_WIDTH=$FULL_TABLE_WIDTH")
+
+  val table0: IndexedSeq[Long] = if (C_TABLE_USAGE == 0) FltExpCcmTables.recipLn2_0 else FltExpCcmTables.ln2_0
+  val table1: IndexedSeq[Long] = if (C_TABLE_USAGE == 0) FltExpCcmTables.recipLn2_1 else FltExpCcmTables.ln2_1
 }
 
 class FltExpCcm(config: FltExpCcmConfig) extends Component {
   import config._
-  
+
   val io = new Bundle {
     val clk = in Bool()
     val ce = in Bool()
@@ -81,20 +87,37 @@ class FltExpCcm(config: FltExpCcmConfig) extends Component {
   )
 
   private val logic = new ClockingArea(ccmClockDomain) {
-    val addr = io.x(ADDR_WIDTH - 1 downto 0)
-    val rom0Mask = (1 << TABLE_WIDTH_0) - 1
-    val rom1Mask = (1 << TABLE_WIDTH_1) - 1
-    val rom0 = Mem(Bits(TABLE_WIDTH_0 bits), initialContent = tableData(0).map(value => B(value & rom0Mask, TABLE_WIDTH_0 bits)))
-    val rom1 = Mem(Bits(TABLE_WIDTH_1 bits), initialContent = tableData(1).map(value => B(value & rom1Mask, TABLE_WIDTH_1 bits)))
-    val table0Data = rom0.readSync(address = addr, enable = io.ce).asUInt
-    val table1Data = rom1.readSync(address = addr, enable = io.ce).asUInt
-    val combinedData = Cat(table1Data, table0Data)
+    val rom0 = Vec(table0.map(v => U(v, TABLE_WIDTH_0 bits)))
+    val rom1 = Vec(table1.map(v => U(v, TABLE_WIDTH_1 bits)))
 
-    io.result := combinedData(C_RESULT_WIDTH - 1 downto 0).asUInt
+
+    val addr1 = io.x(ADDR_WIDTH - 1 downto 0)
+    val mem1 = rom0(addr1)
+    val memPad1 = mem1.resize(FULL_TABLE_WIDTH bits)
+    val sign1 =
+      if (!HAS_2S_COMP_OP) False
+      else if (!NEGATE_OP) io.x_sign
+      else !io.x_sign
+    val psumNeg1 = U(0, FULL_TABLE_WIDTH bits)
+    val psum0Reg = sign1 ? (psumNeg1 - memPad1) | (psumNeg1 + memPad1)
+    val psum0 = RegNext(psum0Reg) init(0)
+
+
+    val addrW = io.x(2 * ADDR_WIDTH - 1 downto ADDR_WIDTH)
+    val addr2 = RegNext(addrW) init(0)
+    val xSign2 = RegNext(io.x_sign) init(False)
+    val mem2 = rom1(addr2)
+    val memPad2 = mem2.resize(FULL_TABLE_WIDTH bits)
+    val sign2 =
+      if (!HAS_2S_COMP_OP) False
+      else if (!NEGATE_OP) xSign2
+      else !xSign2
+    val psum1 = sign2 ? (psum0 - memPad2) | (psum0 + memPad2)
+
+    io.result := psum1(FULL_TABLE_WIDTH - 1 downto FULL_TABLE_WIDTH - C_RESULT_WIDTH)
   }
 }
 
-// 伴生对象，用于简化实例化
 object FltExpCcm {
   def apply(
     clk: Bool,

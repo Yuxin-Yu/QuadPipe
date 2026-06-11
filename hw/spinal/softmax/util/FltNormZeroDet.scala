@@ -17,8 +17,8 @@ class FltNormZeroDet(
     val remainingZero = out Bool()
   }
 
-  // Conservative compatibility behavior: remaining bits are considered zero
-  // when the tail input bits are all zero.
+
+
   val remainingZeroComb = !io.data.orR
   io.remainingZero := FltDelay(io.clk, io.ce, remainingZeroComb.asBits, 1, 1).asBool
 }

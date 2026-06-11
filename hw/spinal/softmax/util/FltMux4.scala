@@ -25,8 +25,8 @@ class FltMux4(val width: Int, val threeSel: Boolean, val length: Int) extends Co
 }
 
 object FltMux4 {
-  def apply(clk: Bool, ce: Bool, IP0: Bits, IP1: Bits, IP2: Bits, IP3: Bits, 
-            SEL0: Bool, SEL0_3: Bool, SEL1: Bool, 
+  def apply(clk: Bool, ce: Bool, IP0: Bits, IP1: Bits, IP2: Bits, IP3: Bits,
+            SEL0: Bool, SEL0_3: Bool, SEL1: Bool,
             width: Int, threeSel: Boolean, length: Int): Bits = {
     val mux = new FltMux4(width, threeSel, length)
     mux.io.clk := clk

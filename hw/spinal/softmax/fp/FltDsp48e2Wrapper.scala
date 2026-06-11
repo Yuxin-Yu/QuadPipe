@@ -1,11 +1,21 @@
-// SPDX-License-Identifier: MIT
-// DSP48E2 包装模块
-// 对Xilinx DSP48E2原语的包装，用于浮点运算
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 package softmax.fp
 
 import spinal.core._
-import spinal.lib._
 
 case class FltDsp48e2WrapperConfig(
   A_WIDTH: Int = 2,
@@ -37,20 +47,13 @@ case class FltDsp48e2WrapperConfig(
   MASK_FROM_C: Int = 0,
   USE_SIMD: String = "ONE48"
 ) {
-  // 内部常量定义
   val USE_MULT = if (USE_MULTIPLY == 1) "MULTIPLY" else "NONE"
   val AMULTSEL = if (USE_DPORT == 1) "AD" else "A"
-  
-  // 延迟配置
-  val delay_C_REG = if (C_REG < 1) C_REG else 1
-  val delay_A_REG = if (A_REG < 2) A_REG else 2
-  val delay_B_REG = if (B_REG < 2) B_REG else 2
-  val delay_D_REG = if (D_REG < 1) D_REG else 1
 }
 
 class FltDsp48e2Wrapper(config: FltDsp48e2WrapperConfig) extends Component {
   import config._
-  
+
   val io = new Bundle {
     val clk = in Bool()
     val ce = in Bool()
@@ -62,57 +65,57 @@ class FltDsp48e2Wrapper(config: FltDsp48e2WrapperConfig) extends Component {
     val OP_MODE = in Bits(9 bits)
     val ALU_MODE = in Bits(4 bits)
     val IN_MODE = in Bits(5 bits)
-    
+
     val CARRY_OUT = out Bits(4 bits)
     val P_OUT = out UInt(P_WIDTH bits)
   }
-  
-  // 内部信号定义
-  val a_int = io.A_IN.resize(30).asSInt
-  val b_int = io.B_IN.resize(18).asSInt
-  val c_int = io.C_IN.resize(48).asSInt
-  val d_int = io.D_IN.resize(27).asSInt
-  val p_out_int = UInt(48 bits)
-  
-  // 延迟处理
-  val carry_in_del = RegNext(io.CARRY_IN)
-  val c_in_del = RegNext(io.C_IN)
-  val a_in_del = RegNext(io.A_IN)
-  val b_in_del = RegNext(io.B_IN)
-  val d_in_del = RegNext(io.D_IN)
-  
-  // DSP控制信号
-  val cea1 = io.ce
-  val cea2 = io.ce
-  val cealumode = io.ce
-  val cead = io.ce
-  val ceinmode = io.ce
-  val ceb1 = io.ce
-  val ceb2 = io.ce
-  val cec = io.ce
-  val ced = io.ce
-  val cecarryin = io.ce
-  val cectrl = io.ce
-  val cem = io.ce
-  val cep = io.ce
-  
-  // 使用SpinalHDL的DSP库实现（简化版本）
-  // 注意：实际实现需要使用SpinalHDL的DSP原语或自定义RTL
-  val dsp = new Area {
-    val p = Reg(UInt(48 bits))
-    
-    // 简化的DSP行为模型
-    when(io.ce) {
-      p := (a_int.asUInt * b_int.asUInt) + c_int.asUInt + d_int.asUInt
+
+  private val cd = ClockDomain(clock = io.clk, config = ClockDomainConfig(resetKind = BOOT))
+
+  private val logic = new ClockingArea(cd) {
+
+    def dlyN[T <: Data](init0: T, src: T, n: Int): T = {
+      var cur = src
+      for (_ <- 0 until n) {
+        val r = RegNextWhen(cur, io.ce) init (init0)
+        cur = r
+      }
+      cur
     }
+
+
+    def ext(v: UInt, w: Int, signed: Int, srcW: Int): SInt =
+      if (signed == 1) v.asSInt.resize(w) else v.resize(w).asSInt
+
+
+    val aReg = dlyN(U(0, A_WIDTH bits), io.A_IN, A_REG)
+    val dReg = dlyN(U(0, D_WIDTH bits), io.D_IN, D_REG)
+    val bReg = dlyN(U(0, B_WIDTH bits), io.B_IN, B_REG)
+    val cReg = dlyN(U(0, C_WIDTH bits), io.C_IN, C_REG)
+
+    val aS = ext(aReg, 30, A_SIGNED, A_WIDTH)
+    val dS = ext(dReg, 27, D_SIGNED, D_WIDTH)
+    val bS = ext(bReg, 18, B_SIGNED, B_WIDTH)
+    val cS = ext(cReg, 48, C_SIGNED, C_WIDTH)
+
+
+    val preadd = (aS + dS)
+    val preaddReg = dlyN(S(0, preadd.getWidth bits), preadd, AD_REG)
+
+
+    val mult = preaddReg * bS
+    val multReg = dlyN(S(0, mult.getWidth bits), mult, M_REG)
+
+
+    val carryDel = dlyN(False, io.CARRY_IN, if (C_REG < 1) C_REG else 1)
+    val sum = (multReg + cS + carryDel.asUInt(1 bits).asSInt.resize(48)).resize(48)
+    val pReg = dlyN(S(0, 48 bits), sum.resize(48), P_REG)
+
+    io.P_OUT := pReg.asUInt(P_WIDTH - 1 downto 0)
+    io.CARRY_OUT := B"0000"
   }
-  
-  // 输出赋值
-  io.CARRY_OUT := "0000"  // 简化实现，实际需要根据DSP输出设置
-  io.P_OUT := dsp.p.resize(P_WIDTH)
 }
 
-// 伴生对象，用于简化实例化
 object FltDsp48e2Wrapper {
   def apply(
     clk: Bool,

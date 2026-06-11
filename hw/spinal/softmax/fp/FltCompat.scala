@@ -44,8 +44,9 @@ class FltExp(val sfmDsp48Ver: String = "DSP48E2") extends Component {
     val m_axis_result_tdata = out Bits(32 bits)
   }
 
-  // SFM_DSP48_VER-aware FltExpWrapper instantiation for DSP48E1/E2 primitive selection.
-  // This instance mirrors the original Verilog exp pipeline with the correct DSP48 version.
+
+
+
   private val expCore = new FltExpWrapper(FltExpWrapperConfig(
     SFM_DSP48_VER = sfmDsp48Ver
   ))
@@ -53,63 +54,6 @@ class FltExp(val sfmDsp48Ver: String = "DSP48E2") extends Component {
   expCore.io.ce := True
   expCore.io.A := io.s_axis_a_tdata.asUInt
 
-  // Functional exp computation via lookup table, validated against the original RTL.
-  // This path provides exactly 14 cycles of latency to match the main pipeline.
-  private val expInputs = (-128 to 127).map { value =>
-    BigInt(java.lang.Float.floatToRawIntBits(value.toFloat) & 0xffffffffL)
-  }
-  private val expOutputs = IndexedSeq(
-    "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000",
-    "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000",
-    "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000",
-    "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000",
-    "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000",
-    "00000000", "00b33687", "01739362", "022586e0", "02e0f96d", "0398e2cb", "044fcb22", "050d35d8",
-    "05bfecba", "06826d27", "07314490", "07f0ee94", "08a3baf0", "095e884f", "0a1739fb", "0acd89c1",
-    "0b8bad78", "0c3dd771", "0d0102bf", "0daf5800", "0e6e511e", "0f21f3fe", "0fdc1df9", "109595c7",
-    "114b4ea4", "120a295c", "12bbc7f1", "137f388b", "142d70c9", "14ebbaec", "15a031fc", "1659ba5a",
-    "1713f623", "17c919b9", "1888a976", "1939be2b", "19fc7361", "1aab8edc", "1b692beb", "1c1e74dd",
-    "1cd75d5e", "1d925b02", "1e46eaf1", "1f072dba", "1fb7ba0f", "2079b5ea", "2129b22a", "21e6a405",
-    "229cbc92", "235506f2", "2410c457", "24c4c239", "2585b61e", "2635bb8d", "26f70010", "27a7daa4",
-    "28642328", "291b090f", "29d2b706", "2a8f3216", "2b429f81", "2c044295", "2cb3c295", "2d7451bd",
-    "2e26083d", "2ee1a93f", "2f995a46", "30506d86", "310da433", "31c082b8", "3282d314", "3331cf19",
-    "33f1aade", "34a43ae5", "355f3638", "3617b02a", "36ce2a62", "378c1aa1", "383e6bce", "39016791",
-    "39afe108", "3a6f0b5d", "3b227290", "3bdcc9ff", "3c960aae", "3d4bed86", "3e0a9555", "3ebc5ab2",
-    "3f800000", "402df854", "40ec7326", "41a0af2e", "425a6481", "431469c5", "43c9b6e2", "44891443",
-    "453a4f54", "45fd38ac", "46ac14ee", "4769e224", "481ef0b3", "48d805ac", "4992cd62", "4a478665",
-    "4b07975e", "4bb849a4", "4c7a7910", "4d2a36c8", "4de75844", "4e9d3710", "4f55ad6e", "50113579",
-    "50c55bfe", "51861e9d", "52364993", "52f7c118", "53a85dd2", "5464d572", "551b8238", "55d35bb3",
-    "568fa1fe", "5743379a", "5804a9f1", "58b44f11", "597510ad", "5a2689fe", "5ae2599a", "5b99d21e",
-    "5c51106a", "5d0e12e4", "5dc1192b", "5e833952", "5f325a0e", "5ff267bb", "60a4bb3e", "615fe4a9",
-    "621826b5", "62cecb80", "638c881f", "643f009e", "6501ccb2", "65b06a7b", "666fc62d", "6722f184",
-    "67dd768b", "68967ff0", "694c8ce6", "6a0b01a3", "6abcede5", "6b806408", "6c2e804a", "6ced2bef",
-    "6da12cc1", "6e5b0f2e", "6f14ddc1", "6fca5487", "70897f64", "713ae0ee", "71fdfe90", "72ac9b6a",
-    "736a98ec", "741f6ce9", "74d8ae7f", "7593401c", "76482253", "77080156", "77b8d9aa", "787b3ccf",
-    "792abbce", "79e80d10", "7a9db1ed", "7b56546b", "7c11a6f5", "7cc5f63a", "7d86876d", "7e36d808",
-    "7ef882b7", "7f800000", "7f800000", "7f800000", "7f800000", "7f800000", "7f800000", "7f800000",
-    "7f800000", "7f800000", "7f800000", "7f800000", "7f800000", "7f800000", "7f800000", "7f800000",
-    "7f800000", "7f800000", "7f800000", "7f800000", "7f800000", "7f800000", "7f800000", "7f800000",
-    "7f800000", "7f800000", "7f800000", "7f800000", "7f800000", "7f800000", "7f800000", "7f800000",
-    "7f800000", "7f800000", "7f800000", "7f800000", "7f800000", "7f800000", "7f800000", "7f800000"
-  ).map(BigInt(_, 16))
-
-  val resultBits = Bits(32 bits)
-  resultBits := B"x3f800000"
-
-  when(io.s_axis_a_tdata === B"xFF800000") {
-    resultBits := B"x00000000"
-  } otherwise {
-    for ((rawIn, idx) <- expInputs.zipWithIndex) {
-      when(io.s_axis_a_tdata === B(rawIn, 32 bits)) {
-        resultBits := B(expOutputs(idx), 32 bits)
-      }
-    }
-  }
-
-  private val dataDelay = new FltDelay(width = 32, length = 14)
-  dataDelay.io.clk := io.aclk
-  dataDelay.io.ce := True
-  dataDelay.io.D := resultBits
 
   private val validDelay = new FltDelay(width = 1, length = 14)
   validDelay.io.clk := io.aclk
@@ -117,7 +61,7 @@ class FltExp(val sfmDsp48Ver: String = "DSP48E2") extends Component {
   validDelay.io.D := io.s_axis_a_tvalid.asBits
 
   io.m_axis_result_tvalid := validDelay.io.Q(0)
-  io.m_axis_result_tdata := dataDelay.io.Q
+  io.m_axis_result_tdata := expCore.io.RESULT.asBits
 }
 
 class FltAdd extends Component {
@@ -251,8 +195,8 @@ class FltAcc(val sfmDsp48Ver: String = "DSP48E2") extends Component {
     val accum_overflow = out Bool()
   }
 
-  // Use FltAccum as the core accumulation engine, matching the original Verilog architecture.
-  // SFM_DSP48_VER parameter selects between DSP48E1 and DSP48E2 primitive wrappers.
+
+
   private val accumCore = new FltAccum(FltAccumConfig(
     SFM_DSP48_VER = sfmDsp48Ver
   ))
@@ -264,9 +208,9 @@ class FltAcc(val sfmDsp48Ver: String = "DSP48E2") extends Component {
   accumCore.io.last := io.s_axis_a_tlast
   accumCore.io.subtract_op := B"000000"
 
-  // Match original Verilog flt_acc:
-  // - DATA goes directly from flt_accum.result to m_axis_result_tdata (no delay)
-  // - Only VALID is delayed by 8 cycles to align with DSP pipeline
+
+
+
   private val validDelay = new FltDelay(width = 1, length = 8)
   validDelay.io.clk := io.aclk
   validDelay.io.ce := True

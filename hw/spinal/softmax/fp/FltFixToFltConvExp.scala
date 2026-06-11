@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: MIT
-// 定点数到浮点数转换的指数计算模块
-// 实现定点数到浮点数转换过程中的指数计算和调整
+
+
+
 
 package softmax.fp
 
@@ -28,7 +28,7 @@ case class FltFixToFltConvExpConfig(
 
 class FltFixToFltConvExp(config: FltFixToFltConvExpConfig) extends Component {
   import config._
-  
+
   val io = new Bundle {
     val clk = in Bool()
     val ce = in Bool()
@@ -36,23 +36,23 @@ class FltFixToFltConvExp(config: FltFixToFltConvExpConfig) extends Component {
     val ROUND_EXP_INC = in Bool()
     val ALL_ZERO = in Bool()
     val NORM_SHIFT = in UInt(NORM_W bits)
-    
+
     val EXP_OUT = out UInt(R_EW bits)
     val OP_STATE = out Bits(12 bits)
     val SIGN_OUT = out Bool()
   }
-  
+
   private val convClockDomain = ClockDomain(
     clock = io.clk,
     config = ClockDomainConfig(resetKind = BOOT)
   )
 
-  // 内部信号定义
+
   val ADJ_BIAS = U(ADJ_BIAS_I, R_EW bits)
   val a_sign = io.A(A_W-1)
   val exp_norm = ADJ_BIAS - io.NORM_SHIFT(R_EW-1 downto 0)
 
-  // 延迟信号（显式绑定到 io.clk，并由 io.ce 控制推进）
+
   val sign_out_w = Bool()
   val flt_all_zero_del = Bool()
   val exp_norm_del = UInt(R_EW bits)
@@ -80,24 +80,24 @@ class FltFixToFltConvExp(config: FltFixToFltConvExpConfig) extends Component {
     flt_all_zero_del := allZeroPipe1
     exp_norm_del := expNormPipe
   }
-  
+
   val exp_norm_loc = UInt(R_EW bits)
   val set_exp_zero = flt_all_zero_del
   val set_exp_one = False
-  
-  // 计算exp_norm_loc
-  exp_norm_loc := Mux(set_exp_zero, U(0, R_EW bits), 
+
+
+  exp_norm_loc := Mux(set_exp_zero, U(0, R_EW bits),
                  Mux(set_exp_one, U(1, R_EW bits), exp_norm_del))
-  
+
   val round_exp_inc_loc = Mux(set_exp_zero || set_exp_one, False, io.ROUND_EXP_INC)
-  
-  // 输出赋值
+
+
   io.EXP_OUT := exp_norm_loc + round_exp_inc_loc.asUInt.resize(R_EW)
   io.OP_STATE := Mux(flt_all_zero_del, B"000000101000", B"000000000000")
   io.SIGN_OUT := (if (A_UNSIGNED == 0) sign_out_w else False)
 }
 
-// 伴生对象，用于简化实例化
+
 object FltFixToFltConvExp {
   def apply(
     clk: Bool,

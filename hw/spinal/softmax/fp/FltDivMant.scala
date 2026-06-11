@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: MIT
-// 浮点除法尾数计算模块
-// 实现浮点除法的尾数计算核心算法
+
+
+
 
 package softmax.fp
 
@@ -12,7 +12,7 @@ case class FltDivMantConfig(
   FW: Int = 24,
   RATE: Int = 1
 ) {
-  // 计算函数
+
   def getLastStage(bitsLeft: Int, ch: Int): Int = {
     var bits = bitsLeft
     while (bits > ch) {
@@ -20,7 +20,7 @@ case class FltDivMantConfig(
     }
     bits
   }
-  
+
   def getChunks(lFw: Int, lLatency: Int): Int = {
     if (lLatency == 0) {
       10000
@@ -28,7 +28,7 @@ case class FltDivMantConfig(
       (lFw + lLatency - 1) / lLatency
     }
   }
-  
+
   def getStages(lFw: Int, lRate: Int, lLatency: Int): Int = {
     if (lLatency == 0) {
       lFw
@@ -36,7 +36,7 @@ case class FltDivMantConfig(
       (lFw + lRate - 1) / lRate
     }
   }
-  
+
   def getNStages(lFw: Int, lStages: Int, lChunks: Int, lLatency: Int): Int = {
     if (lLatency == 0) {
       lFw
@@ -49,7 +49,7 @@ case class FltDivMantConfig(
       }
     }
   }
-  
+
   val latency = LATENCY_MANT
   val chunks = getChunks(FW + 2, latency)
   val stages = getStages(FW + 2, RATE, latency)
@@ -59,14 +59,14 @@ case class FltDivMantConfig(
 
 class FltDivMant(config: FltDivMantConfig) extends Component {
   import config._
-  
+
   val io = new Bundle {
     val clk = in Bool()
     val ce = in Bool()
     val ND = in Bool()
     val N_MANT = in UInt(FW bits)
     val D_MANT = in UInt(FW bits)
-    
+
     val Q_MSB = out Bool()
     val Q_MANT = out UInt(FW+3 bits)
   }
@@ -94,7 +94,7 @@ class FltDivMant(config: FltDivMantConfig) extends Component {
   }
 }
 
-// 伴生对象，用于简化实例化
+
 object FltDivMant {
   def apply(
     clk: Bool,

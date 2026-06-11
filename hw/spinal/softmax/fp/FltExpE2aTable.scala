@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// 从原始 flt_exp_e2a case-ROM 提取的 1024 项 27-bit 常量表
+
+
 
 package softmax.fp
 

@@ -1,6 +1,7 @@
-// SPDX-License-Identifier: MIT
-// 指数计算的 e^a 查找表模块
-// 该 ROM 在原 RTL 中由组合 case 函数实现，这里保持接口兼容但直接用常量 Vec 查表
+
+
+
+
 
 package softmax.fp
 
@@ -35,7 +36,16 @@ class FltExpE2a(config: FltExpE2aConfig) extends Component {
 
   private val tableVec = Vec(tableData.map(value => U(value, TABLE_WIDTH bits)))
 
-  io.result := tableVec(io.A)
+  private val expClockDomain = ClockDomain(
+    clock = io.clk,
+    config = ClockDomainConfig(resetKind = BOOT)
+  )
+
+  private val logic = new ClockingArea(expClockDomain) {
+
+    val mem = RegNext(tableVec(io.A)) init(0)
+    io.result := mem(FULL_TABLE_WIDTH - 1 downto FULL_TABLE_WIDTH - C_RESULT_WIDTH)
+  }
 }
 
 object FltExpE2a {
